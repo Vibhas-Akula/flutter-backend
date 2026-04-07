@@ -1,0 +1,51 @@
+# MERN Backend (Login API)
+
+Backend server for Flutter login system.
+Built with Node.js, Express, and MongoDB.
+
+## 🛠 Tech Used
+- Node.js
+- Express
+- MongoDB
+- Mongoose
+- CORS
+
+## 🗄 MongoDB Commands (Windows)
+
+Start MongoDB:
+   net start MongoDB
+
+Stop MongoDB:
+   net stop MongoDB
+
+Check Status:
+   sc query MongoDB
+
+## ▶️ Setup
+
+1. Install dependencies:
+   npm install express mongoose cors
+
+2. Start MongoDB:
+   net start MongoDB
+
+3. Run server:
+   node server.js
+
+Server runs on:
+http://localhost:3000
+
+## 📌 API
+
+Create user (run once):
+GET /create
+
+Login:
+POST /login
+{
+  "username": "admin",
+  "password": "1234"
+}
+
+Returns:
+{ "success": true/false }
