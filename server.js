@@ -47,6 +47,10 @@ const loginSchema = new mongoose.Schema({
 
 const userSchema = new mongoose.Schema({
     loginId: { type: mongoose.Schema.Types.ObjectId, ref: 'Login', required: true },
+    assignedTherapistId: {
+        type: String,
+        default: "THE12345" // temporary default
+    },
     name: String,
     email: String,
     dob: Date,
@@ -63,12 +67,14 @@ const documentSchema = new mongoose.Schema({
 const therapistSchema = new mongoose.Schema({
     therapistId: { type: String, unique: true, required: true },
     therapistName: { type: String, required: true },
+    password: { type: String, required: true }
 }, { timestamps: true });
 
 const appointmentSchema = new mongoose.Schema({
     therapistId: { type: mongoose.Schema.Types.ObjectId, ref: 'Therapist', required: true },
     patientId: { type: mongoose.Schema.Types.ObjectId, ref: 'Login', required: true },
-    timeSlot: { type: Date, required: true },
+    date: { type: Date, required: true },
+    timeSlot: { type: String, required: true },
 }, { timestamps: true });
 
 /* ================== ID GENERATORS ================== */
@@ -78,7 +84,7 @@ function generatePatientId() {
 }
 
 function generateTherapistId() {
-    return "THR" + numericId();
+    return "THE" + numericId();
 }
 
 /* ================== MODELS ================== */
@@ -308,31 +314,48 @@ app.get("/profile", authenticateToken, async (req, res) => {
 
 
 /* ---------- GET THERAPISTS ---------- */
-
-app.get("/therapists", authenticateToken, async (req, res) => {
-
+app.post("/create-therapist", async (req, res) => {
     try {
+        const { name, password } = req.body;
 
-        const therapists = await Therapist.find({}, "therapistId therapistName");
+        const hashedPassword = await argon2.hash(password);
+
+        const therapist = await Therapist.create({
+            therapistId: generateTherapistId(),
+            name,
+            password: hashedPassword
+        });
 
         res.json({
             success: true,
-            therapists
+            therapist
         });
 
     } catch (err) {
-
         console.error(err);
-
-        res.status(500).json({
-            success: false,
-            message: "Server error"
-        });
-
+        res.status(500).json({ success: false });
     }
-
 });
 
+app.get("/my-therapist", authenticateToken, async (req, res) => {
+    try {
+        const user = await UserDetails.findOne({ loginId: req.user.id });
+
+        const therapist = await Therapist.findOne({
+            therapistId: user.assignedTherapistId
+        });
+
+        res.json({
+            success: true,
+            therapistId: therapist.therapistId,
+            name: therapist.name
+        });
+
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ success: false });
+    }
+});
 
 /* ---------- BOOK APPOINTMENT ---------- */
 
