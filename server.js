@@ -358,67 +358,67 @@ app.get("/my-therapist", authenticateToken, async (req, res) => {
 });
 
 /* ---------- BOOK APPOINTMENT ---------- */
-
 app.post("/appointment", authenticateToken, async (req, res) => {
 
     try {
 
-        const { therapistId, timeSlot } = req.body;
+        const { date, timeSlot } = req.body;
 
-        if (!therapistId || !timeSlot) {
-
+        if (!date || !timeSlot) {
             return res.status(400).json({
                 success: false,
-                message: "Therapist ID and time slot required"
+                message: "Date and time slot required"
             });
-
         }
 
-        const therapist = await Therapist.findOne({ therapistId });
+        const selectedDate = new Date(date);
+        const today = new Date();
 
-        if (!therapist) {
+        // remove time part for accurate comparison
+        today.setHours(0, 0, 0, 0);
 
-            return res.status(404).json({
-                success: false,
-                message: "Therapist not found"
-            });
-
-        }
-
-        const slotDate = new Date(timeSlot);
-
-        if (slotDate <= new Date()) {
-
+        if (selectedDate < today) {
             return res.status(400).json({
                 success: false,
-                message: "Appointment date must be in the future"
+                message: "Please select a future date"
             });
-
         }
 
+        // get user
+        const user = await UserDetails.findOne({
+            loginId: req.user.id
+        });
+
+        const therapistId = user.assignedTherapistId;
+
+        // normalize date (important!)
+        selectedDate.setHours(0, 0, 0, 0);
+
+        // check conflict
         const conflict = await Appointment.findOne({
-            therapistId: therapist._id,
-            timeSlot: slotDate
+            therapistId,
+            date: selectedDate,
+            timeSlot
         });
 
         if (conflict) {
-
             return res.status(409).json({
                 success: false,
-                message: "This slot is already booked. Please select a different time."
+                message: "Slot already booked"
             });
-
         }
 
+        // create appointment
         const appointment = await Appointment.create({
-            therapistId: therapist._id,
+            therapistId,
             patientId: req.user.id,
-            timeSlot: slotDate
+            date: selectedDate,
+            timeSlot
         });
 
         res.status(201).json({
             success: true,
-            message: "Appointment booked successfully",
+            message: "Slot booked successfully!",
             appointment
         });
 
