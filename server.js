@@ -49,7 +49,7 @@ const userSchema = new mongoose.Schema({
     loginId: { type: mongoose.Schema.Types.ObjectId, ref: 'Login', required: true },
     assignedTherapistId: {
         type: String,
-        default: "THE12345" // temporary default
+        default: "THE40059" // temporary default
     },
     name: String,
     email: String,
@@ -66,7 +66,7 @@ const documentSchema = new mongoose.Schema({
 
 const therapistSchema = new mongoose.Schema({
     therapistId: { type: String, unique: true, required: true },
-    therapistName: { type: String, required: true },
+    name: { type: String, required: true },
     password: { type: String, required: true }
 }, { timestamps: true });
 
