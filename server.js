@@ -35,14 +35,14 @@ mongoose.connect(process.env.MONGO_URI)
 .catch(err => console.error(err));
 
 /* ================== HELPERS ================== */
-const generatePatientId = () => "PAT" + numericId();
+const generateuserId = () => "PAT" + numericId();
 const generateTherapistId = () => "THE" + numericId();
 const generateSupervisorId = () => "SUP" + numericId();
 
 /* ================== SCHEMAS ================== */
 
 const loginSchema = new mongoose.Schema({
-    patientId: { type: String, unique: true },
+    userId: { type: String, unique: true },
     password: String
 });
 
@@ -113,7 +113,7 @@ app.post("/register", async (req, res) => {
     const hashed = await argon2.hash(password);
 
     const user = await Login.create({
-        patientId: generatePatientId(),
+        userId: generateuserId(),
         password: hashed
     });
 
@@ -124,15 +124,15 @@ app.post("/register", async (req, res) => {
 
 app.post("/login", async (req, res) => {
     try {
-        const { patientId, password } = req.body;
+        const { userId, password } = req.body;
 
-        if (!patientId || !password) {
+        if (!userId || !password) {
             return res.status(400).json({ success: false });
         }
 
         // PATIENT
-        if (patientId.startsWith("PAT")) {
-            const user = await Login.findOne({ patientId });
+        if (userId.startsWith("PAT")) {
+            const user = await Login.findOne({ userId });
 
             if (!user || !(await argon2.verify(user.password, password))) {
                 return res.status(401).json({ success: false });
@@ -147,8 +147,8 @@ app.post("/login", async (req, res) => {
         }
 
         // THERAPIST
-        if (patientId.startsWith("THE")) {
-            const therapist = await Therapist.findOne({ therapistId: patientId });
+        if (userId.startsWith("THE")) {
+            const therapist = await Therapist.findOne({ therapistId: userId });
 
             if (!therapist || !(await argon2.verify(therapist.password, password))) {
                 return res.status(401).json({ success: false });
@@ -163,8 +163,8 @@ app.post("/login", async (req, res) => {
         }
 
         // SUPERVISOR
-        if (patientId.startsWith("SUP")) {
-            const supervisor = await Supervisor.findOne({ supervisorId: patientId });
+        if (userId.startsWith("SUP")) {
+            const supervisor = await Supervisor.findOne({ supervisorId: userId });
 
             if (!supervisor || !(await argon2.verify(supervisor.password, password))) {
                 return res.status(401).json({ success: false });
