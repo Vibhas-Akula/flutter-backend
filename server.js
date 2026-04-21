@@ -47,9 +47,10 @@ const loginSchema = new mongoose.Schema({
 
 const userSchema = new mongoose.Schema({
     loginId: { type: mongoose.Schema.Types.ObjectId, ref: 'Login', required: true },
-    assignedTherapistId: {
-        type: String,
-        default: "THE40059" // temporary default
+    therapistId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Therapist",
+        default: new mongoose.Types.ObjectId("69e6695baafb8c422ff5d60f")
     },
     name: String,
     email: String,
@@ -93,7 +94,7 @@ const Login = mongoose.model("Login", loginSchema);
 const UserDetails = mongoose.model("UserDetails", userSchema);
 const Documents = mongoose.model("Documents", documentSchema);
 const Therapist = mongoose.model("Therapist", therapistSchema);
-const Appointment = mongoose.model("Appointment", appointmentSchema);
+const Appointment = mongoose.model("Appointments", appointmentSchema);
 
 /* ================== MULTER ================== */
 
@@ -341,9 +342,7 @@ app.get("/my-therapist", authenticateToken, async (req, res) => {
     try {
         const user = await UserDetails.findOne({ loginId: req.user.id });
 
-        const therapist = await Therapist.findOne({
-            therapistId: user.assignedTherapistId
-        });
+        const therapist = await Therapist.findById(user.therapistId);
 
         res.json({
             success: true,
@@ -359,9 +358,7 @@ app.get("/my-therapist", authenticateToken, async (req, res) => {
 
 /* ---------- BOOK APPOINTMENT ---------- */
 app.post("/appointment", authenticateToken, async (req, res) => {
-
     try {
-
         const { date, timeSlot } = req.body;
 
         if (!date || !timeSlot) {
@@ -373,8 +370,6 @@ app.post("/appointment", authenticateToken, async (req, res) => {
 
         const selectedDate = new Date(date);
         const today = new Date();
-
-        // remove time part for accurate comparison
         today.setHours(0, 0, 0, 0);
 
         if (selectedDate < today) {
@@ -384,17 +379,28 @@ app.post("/appointment", authenticateToken, async (req, res) => {
             });
         }
 
-        // get user
         const user = await UserDetails.findOne({
             loginId: req.user.id
         });
 
-        const therapistId = user.assignedTherapistId;
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                message: "User not found"
+            });
+        }
 
-        // normalize date (important!)
+        const therapistId = user.therapistId;
+
+        if (!therapistId) {
+            return res.status(400).json({
+                success: false,
+                message: "Therapist not assigned"
+            });
+        }
+
         selectedDate.setHours(0, 0, 0, 0);
 
-        // check conflict
         const conflict = await Appointment.findOne({
             therapistId,
             date: selectedDate,
@@ -408,13 +414,14 @@ app.post("/appointment", authenticateToken, async (req, res) => {
             });
         }
 
-        // create appointment
         const appointment = await Appointment.create({
             therapistId,
             patientId: req.user.id,
             date: selectedDate,
             timeSlot
         });
+
+        console.log("Appointment saved:", appointment);
 
         res.status(201).json({
             success: true,
@@ -423,16 +430,12 @@ app.post("/appointment", authenticateToken, async (req, res) => {
         });
 
     } catch (err) {
-
         console.error(err);
-
         res.status(500).json({
             success: false,
             message: "Server error"
         });
-
     }
-
 });
 
 
