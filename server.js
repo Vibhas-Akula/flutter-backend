@@ -13,6 +13,7 @@ const multer = require("multer");
 const cloudinary = require("cloudinary").v2;
 const streamifier = require("streamifier");
 const { customAlphabet } = require("nanoid");
+
 const numericId = customAlphabet("0123456789", 5);
 
 const app = express();
@@ -21,428 +22,168 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-/* ================== CLOUDINARY CONFIG ================== */
+/* ================== CLOUDINARY ================== */
 cloudinary.config({
     cloud_name: process.env.CLOUD_NAME,
     api_key: process.env.API_KEY,
     api_secret: process.env.API_SECRET,
 });
 
-/* ================== MONGODB CONNECTION ================== */
-mongoose
-    .connect(process.env.MONGO_URI)
-    .then(() => console.log("✅ MongoDB Connected"))
-    .catch((err) => console.error("❌ DB Connection Error:", err));
+/* ================== DB ================== */
+mongoose.connect(process.env.MONGO_URI)
+.then(() => console.log("✅ MongoDB Connected"))
+.catch(err => console.error(err));
 
-mongoose.connection.on("error", (err) => {
-    console.error("MongoDB runtime error:", err);
-});
+/* ================== HELPERS ================== */
+const generatePatientId = () => "PAT" + numericId();
+const generateTherapistId = () => "THE" + numericId();
+const generateSupervisorId = () => "SUP" + numericId();
 
 /* ================== SCHEMAS ================== */
 
 const loginSchema = new mongoose.Schema({
-    patientId: { type: String, unique: true, required: true },
-    password: { type: String, required: true },
-}, { timestamps: true });
-
-const userSchema = new mongoose.Schema({
-    loginId: { type: mongoose.Schema.Types.ObjectId, ref: 'Login', required: true },
-    therapistId: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: "Therapist",
-        default: new mongoose.Types.ObjectId("69e6695baafb8c422ff5d60f")
-    },
-    name: String,
-    email: String,
-    dob: Date,
-    gender: String,
-    problem: String
-}, { timestamps: true });
-
-const documentSchema = new mongoose.Schema({
-    userId: { type: mongoose.Schema.Types.ObjectId, ref: 'Login', required: true },
-    docType: String,
-    url: String
-}, { timestamps: true });
+    patientId: { type: String, unique: true },
+    password: String
+});
 
 const therapistSchema = new mongoose.Schema({
-    therapistId: { type: String, unique: true, required: true },
-    name: { type: String, required: true },
-    password: { type: String, required: true }
-}, { timestamps: true });
+    therapistId: { type: String, unique: true },
+    name: String,
+    password: String
+});
 
-const appointmentSchema = new mongoose.Schema({
-    therapistId: { type: mongoose.Schema.Types.ObjectId, ref: 'Therapist', required: true },
-    patientId: { type: mongoose.Schema.Types.ObjectId, ref: 'Login', required: true },
-    date: { type: Date, required: true },
-    timeSlot: { type: String, required: true },
-}, { timestamps: true });
-
-/* ================== ID GENERATORS ================== */
-
-function generatePatientId() {
-    return "PAT" + numericId();
-}
-
-function generateTherapistId() {
-    return "THE" + numericId();
-}
+const supervisorSchema = new mongoose.Schema({
+    supervisorId: { type: String, unique: true },
+    name: String,
+    password: String
+});
 
 /* ================== MODELS ================== */
 
 const Login = mongoose.model("Login", loginSchema);
-const UserDetails = mongoose.model("UserDetails", userSchema);
-const Documents = mongoose.model("Documents", documentSchema);
 const Therapist = mongoose.model("Therapist", therapistSchema);
-const Appointment = mongoose.model("Appointments", appointmentSchema);
+const Supervisor = mongoose.model("Supervisor", supervisorSchema);
 
-/* ================== MULTER ================== */
-
-const upload = multer({
-    storage: multer.memoryStorage()
-});
-
-/* ================== CLOUDINARY HELPER ================== */
-
-const uploadToCloudinary = (buffer) => {
-    return new Promise((resolve, reject) => {
-
-        const stream = cloudinary.uploader.upload_stream(
-            { resource_type: "auto" },
-            (error, result) => {
-
-                if (error) reject(error);
-                else resolve(result);
-
-            }
-        );
-
-        streamifier.createReadStream(buffer).pipe(stream);
-
-    });
-};
-
-/* ================== AUTH MIDDLEWARE ================== */
+/* ================== AUTH ================== */
 
 function authenticateToken(req, res, next) {
-
-    const authHeader = req.headers["authorization"];
-    const token = authHeader && authHeader.split(" ")[1];
-
-    if (!token) {
-
-        return res.status(401).json({
-            success: false,
-            message: "Token required"
-        });
-
-    }
+    const token = req.headers.authorization?.split(" ")[1];
+    if (!token) return res.status(401).json({ success: false });
 
     jwt.verify(token, process.env.JWT_SECRET, (err, user) => {
-        if (err) {
-            return res.status(403).json({
-                success: false,
-                message: "Invalid token"
-            });
-        }
+        if (err) return res.status(403).json({ success: false });
         req.user = user;
         next();
     });
 }
 
-/* ================== ROUTES ================== */
+/* ================== CREATE USERS ================== */
 
+app.post("/create-therapist", async (req, res) => {
+    const { name, password } = req.body;
 
-/* ---------- REGISTER ---------- */
+    const hashed = await argon2.hash(password);
 
-app.post("/register", upload.single("idDoc"), async (req, res) => {
-    try {
-        const { email, password, name, dob, gender, problem } = req.body;
-        if (!password) {
-            return res.status(400).json({
-                success: false,
-                message: "Password required"
-            });
-        }
+    const therapist = await Therapist.create({
+        therapistId: generateTherapistId(),
+        name,
+        password: hashed
+    });
 
-        const hashedPassword = await argon2.hash(password);
-        const patientId = generatePatientId();
-        const login = await Login.create({
-            patientId,
-            password: hashedPassword
-        });
-
-        await UserDetails.create({
-            loginId: login._id,
-            name,
-            email,
-            dob,
-            gender,
-            problem
-        });
-
-        if (req.file) {
-
-            const result = await uploadToCloudinary(req.file.buffer);
-            await Documents.create({
-                userId: login._id,
-                docType: "ID Proof",
-                url: result.secure_url
-            });
-
-        }
-
-        res.status(201).json({
-            success: true,
-            message: "User registered successfully",
-            patientId
-        });
-
-    } catch (err) {
-
-        console.error(err);
-        res.status(500).json({
-            success: false,
-            message: "Server error"
-        });
-
-    }
-
+    res.json({ success: true, therapist });
 });
 
+app.post("/create-supervisor", async (req, res) => {
+    const { name, password } = req.body;
 
-/* ---------- LOGIN ---------- */
+    const hashed = await argon2.hash(password);
+
+    const supervisor = await Supervisor.create({
+        supervisorId: generateSupervisorId(),
+        name,
+        password: hashed
+    });
+
+    res.json({ success: true, supervisor });
+});
+
+app.post("/register", async (req, res) => {
+    const { password } = req.body;
+
+    const hashed = await argon2.hash(password);
+
+    const user = await Login.create({
+        patientId: generatePatientId(),
+        password: hashed
+    });
+
+    res.json({ success: true, user });
+});
+
+/* ================== LOGIN ================== */
 
 app.post("/login", async (req, res) => {
-
     try {
-
         const { patientId, password } = req.body;
 
         if (!patientId || !password) {
-
-            return res.status(400).json({
-                success: false,
-                message: "Patient ID and password required"
-            });
-
+            return res.status(400).json({ success: false });
         }
 
-        const login = await Login.findOne({ patientId });
+        // PATIENT
+        if (patientId.startsWith("PAT")) {
+            const user = await Login.findOne({ patientId });
 
-        if (!login) {
+            if (!user || !(await argon2.verify(user.password, password))) {
+                return res.status(401).json({ success: false });
+            }
 
-            return res.status(401).json({
-                success: false,
-                message: "Invalid credentials"
-            });
+            const token = jwt.sign(
+                { id: user._id, role: "patient" },
+                process.env.JWT_SECRET
+            );
 
+            return res.json({ success: true, role: "patient", token });
         }
 
-        const valid = await argon2.verify(login.password, password);
+        // THERAPIST
+        if (patientId.startsWith("THE")) {
+            const therapist = await Therapist.findOne({ therapistId: patientId });
 
-        if (!valid) {
+            if (!therapist || !(await argon2.verify(therapist.password, password))) {
+                return res.status(401).json({ success: false });
+            }
 
-            return res.status(401).json({
-                success: false,
-                message: "Invalid credentials"
-            });
+            const token = jwt.sign(
+                { id: therapist._id, role: "therapist" },
+                process.env.JWT_SECRET
+            );
 
+            return res.json({ success: true, role: "therapist", token });
         }
 
-        const token = jwt.sign(
-            {
-                id: login._id,
-                patientId: login.patientId
-            },
-            process.env.JWT_SECRET,
-            { expiresIn: "7d" }
-        );
+        // SUPERVISOR
+        if (patientId.startsWith("SUP")) {
+            const supervisor = await Supervisor.findOne({ supervisorId: patientId });
 
-        res.json({
-            success: true,
-            message: "Login successful",
-            patientId: login.patientId,
-            token
-        });
+            if (!supervisor || !(await argon2.verify(supervisor.password, password))) {
+                return res.status(401).json({ success: false });
+            }
 
-    } catch (err) {
+            const token = jwt.sign(
+                { id: supervisor._id, role: "supervisor" },
+                process.env.JWT_SECRET
+            );
 
-        console.error(err);
+            return res.json({ success: true, role: "supervisor", token });
+        }
 
-        res.status(500).json({
-            success: false,
-            message: "Server error"
-        });
-
-    }
-
-});
-
-
-/* ---------- PROFILE ---------- */
-
-app.get("/profile", authenticateToken, async (req, res) => {
-
-    try {
-
-        const profile = await UserDetails.findOne({
-            loginId: req.user.id
-        });
-
-        const docs = await Documents.find({
-            userId: req.user.id
-        });
-
-        res.json({
-            success: true,
-            profile,
-            documents: docs
-        });
+        res.status(400).json({ success: false });
 
     } catch (err) {
-
-        console.error(err);
-
-        res.status(500).json({
-            success: false,
-            message: "Server error"
-        });
-
-    }
-
-});
-
-
-/* ---------- GET THERAPISTS ---------- */
-app.post("/create-therapist", async (req, res) => {
-    try {
-        const { name, password } = req.body;
-
-        const hashedPassword = await argon2.hash(password);
-
-        const therapist = await Therapist.create({
-            therapistId: generateTherapistId(),
-            name,
-            password: hashedPassword
-        });
-
-        res.json({
-            success: true,
-            therapist
-        });
-
-    } catch (err) {
-        console.error(err);
         res.status(500).json({ success: false });
     }
 });
 
-app.get("/my-therapist", authenticateToken, async (req, res) => {
-    try {
-        const user = await UserDetails.findOne({ loginId: req.user.id });
-
-        const therapist = await Therapist.findById(user.therapistId);
-
-        res.json({
-            success: true,
-            therapistId: therapist.therapistId,
-            name: therapist.name
-        });
-
-    } catch (err) {
-        console.error(err);
-        res.status(500).json({ success: false });
-    }
-});
-
-/* ---------- BOOK APPOINTMENT ---------- */
-app.post("/appointment", authenticateToken, async (req, res) => {
-    try {
-        const { date, timeSlot } = req.body;
-
-        if (!date || !timeSlot) {
-            return res.status(400).json({
-                success: false,
-                message: "Date and time slot required"
-            });
-        }
-
-        const selectedDate = new Date(date);
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-
-        if (selectedDate < today) {
-            return res.status(400).json({
-                success: false,
-                message: "Please select a future date"
-            });
-        }
-
-        const user = await UserDetails.findOne({
-            loginId: req.user.id
-        });
-
-        if (!user) {
-            return res.status(404).json({
-                success: false,
-                message: "User not found"
-            });
-        }
-
-        const therapistId = user.therapistId;
-
-        if (!therapistId) {
-            return res.status(400).json({
-                success: false,
-                message: "Therapist not assigned"
-            });
-        }
-
-        selectedDate.setHours(0, 0, 0, 0);
-
-        const conflict = await Appointment.findOne({
-            therapistId,
-            date: selectedDate,
-            timeSlot
-        });
-
-        if (conflict) {
-            return res.status(409).json({
-                success: false,
-                message: "Slot already booked"
-            });
-        }
-
-        const appointment = await Appointment.create({
-            therapistId,
-            patientId: req.user.id,
-            date: selectedDate,
-            timeSlot
-        });
-
-        console.log("Appointment saved:", appointment);
-
-        res.status(201).json({
-            success: true,
-            message: "Slot booked successfully!",
-            appointment
-        });
-
-    } catch (err) {
-        console.error(err);
-        res.status(500).json({
-            success: false,
-            message: "Server error"
-        });
-    }
-});
-
-
-/* ================== SERVER START ================== */
-
-const PORT = process.env.PORT || 3000;
-
-app.listen(PORT, () => {
-    console.log(`🚀 Server running on port ${PORT}`);
-});
+/* ================== START ================== */
+app.listen(3000, () => console.log("🚀 Server running on 3000"));
